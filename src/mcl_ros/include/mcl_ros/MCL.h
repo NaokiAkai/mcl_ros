@@ -37,8 +37,8 @@ private:
     ros::Subscriber scanSub_, odomSub_, mapSub_, initialPoseSub_;
 
     // publishers
-    std::string poseName_, particlesName_, unknownScanName_;
-    ros::Publisher posePub_, particlesPub_, unknownScanPub_;
+    std::string poseName_, particlesName_, unknownScanName_, residualErrorsName_;
+    ros::Publisher posePub_, particlesPub_, unknownScanPub_, residualErrorsPub_;
 
     // frames
     std::string laserFrame_, baseLinkFrame_, mapFrame_, odomFrame_;
@@ -84,7 +84,7 @@ private:
     double pKnownPrior_, pUnknownPrior_, unknownScanProbThreshold_;
     double alphaSlow_, alphaFast_, omegaSlow_, omegaFast_;
     int scanStep_;
-    bool rejectUnknownScan_, publishUnknownScan_;
+    bool rejectUnknownScan_, publishUnknownScan_, publishResidualErrors_;
     bool gotScan_;
     double resampleThresholdESS_;
 
@@ -117,6 +117,7 @@ public:
         poseName_("/mcl_pose"),
         particlesName_("/mcl_particles"),
         unknownScanName_("/unknown_scan"),
+        residualErrorsName_("/residual_errors"),
         laserFrame_("/laser"),
         baseLinkFrame_("/base_link"),
         mapFrame_("/map"),
@@ -155,6 +156,7 @@ public:
         omegaFast_(0.0),
         rejectUnknownScan_(false),
         publishUnknownScan_(false),
+        publishResidualErrors_(false),
         resampleThresholdESS_(0.5),
         localizationHz_(10.0),
         gotMap_(false),
@@ -170,7 +172,8 @@ public:
         nh_.param("map_name", mapName_, mapName_);
         nh_.param("pose_name", poseName_, poseName_);
         nh_.param("particles_name", particlesName_, particlesName_);
-        nh_.param("unknown_scan_name", unknownScanName_, unknownScanName_);        
+        nh_.param("unknown_scan_name", unknownScanName_, unknownScanName_);  
+        nh_.param("residual_errors_name", residualErrorsName_, residualErrorsName_);      
         nh_.param("laser_frame", laserFrame_, laserFrame_);
         nh_.param("base_link_frame", baseLinkFrame_, baseLinkFrame_);
         nh_.param("map_frame", mapFrame_, mapFrame_);
@@ -207,6 +210,7 @@ public:
         nh_.param("alpha_fast", alphaFast_, alphaFast_);
         nh_.param("reject_unknown_scan", rejectUnknownScan_, rejectUnknownScan_);
         nh_.param("publish_unknown_scan", publishUnknownScan_, publishUnknownScan_);
+        nh_.param("publish_residual_errors", publishResidualErrors_, publishResidualErrors_);
         nh_.param("resample_threshold_ess", resampleThresholdESS_, resampleThresholdESS_);
         nh_.param("resample_thresholds", resampleThresholds_, resampleThresholds_);
         pUnknownPrior_ = 1.0 - pKnownPrior_;
@@ -224,6 +228,7 @@ public:
         posePub_ = nh_.advertise<geometry_msgs::PoseStamped>(poseName_, 1);
         particlesPub_ = nh_.advertise<geometry_msgs::PoseArray>(particlesName_, 1);
         unknownScanPub_ = nh_.advertise<sensor_msgs::LaserScan>(unknownScanName_, 1);
+        residualErrorsPub_ = nh_.advertise<sensor_msgs::LaserScan>(residualErrorsName_, 1);
 
         // set initial pose
         mclPose_.setPose(initialPose_[0], initialPose_[1], initialPose_[2]);
@@ -551,6 +556,33 @@ public:
         }
     }
 
+    std::vector<float> getResidualErrors(void) {
+        double yaw = mclPose_.getYaw();
+        double sensorX = baseLink2Laser_.getX() * cos(yaw) - baseLink2Laser_.getY() * sin(yaw) + mclPose_.getX();
+        double sensorY = baseLink2Laser_.getX() * sin(yaw) + baseLink2Laser_.getY() * cos(yaw) + mclPose_.getY();
+        double sensorYaw = baseLink2Laser_.getYaw() + yaw;
+        std::vector<float> residualErrors((int)scan_.ranges.size());
+        for (int i = 0; i < (int)scan_.ranges.size(); ++i) {
+            double r = scan_.ranges[i];
+            if (r <= scan_.range_min || scan_.range_max <= r) {
+                residualErrors[i] = -1.0;
+                continue;
+            }
+            double t = (double)i * scan_.angle_increment + scan_.angle_min + sensorYaw;
+            double x = r * cos(t) + sensorX;
+            double y = r * sin(t) + sensorY;
+            int u, v;
+            xy2uv(x, y, &u, &v);
+            if (onMap(u, v)) {
+                float dist = distMap_.at<float>(v, u);
+                residualErrors[i] = dist;
+            } else {
+                residualErrors[i] = -1.0;
+            }
+        }
+        return residualErrors;
+    }
+
     void printResult(void) {
         std::cout << "MCL: x = " << mclPose_.getX() << " [m], y = " << mclPose_.getY() << " [m], yaw = " << mclPose_.getYaw() * rad2deg_ << " [deg]" << std::endl;
         std::cout << "Odom: x = " << odomPose_.getX() << " [m], y = " << odomPose_.getY() << " [m], yaw = " << odomPose_.getYaw() * rad2deg_ << " [deg]" << std::endl;
@@ -613,6 +645,13 @@ public:
         // unknown scan
         if (publishUnknownScan_ && (rejectUnknownScan_ || measurementModelType_ == 2))
             unknownScanPub_.publish(unknownScan_);
+
+        // residual errors
+        if (publishResidualErrors_) {
+            sensor_msgs::LaserScan residualErrors = scan_;
+            residualErrors.ranges = getResidualErrors();
+            residualErrorsPub_.publish(residualErrors);
+        }
     }
 
 private:

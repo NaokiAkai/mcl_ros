@@ -22,12 +22,12 @@ int main(int argc, char **argv) {
     while (ros::ok()) {
         ros::spinOnce();
         mcl.updataParticlesByMotionModel();
-        mcl.calculateLikelihoodsByMeasurementModel();
         mcl.setCanUpdateScan(false);
+        mcl.calculateLikelihoodsByMeasurementModel();
         mcl.estimatePose();
-        mcl.setCanUpdateScan(true);
         mcl.resampleParticles();
         mcl.publishROSMessages();
+        mcl.setCanUpdateScan(true);
         mcl.printResult();
         loopRate.sleep();
     }

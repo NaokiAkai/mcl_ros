@@ -12,7 +12,7 @@ I confirmed that mcl_ros works on Ubuntu 18.04 and 20.04.
 
 ## How to install
 
-You need to install ROS environment first. Then, install ros_mcl as
+You need to install ROS environment first. Then, install mcl_ros as
 
 ~~~
 $ git clone https://github.com/NaokiAkai/mcl_ros.git
@@ -94,7 +94,7 @@ To use the unknown scan rejection, reject_unknown_scan is needed to be set to tr
 $ roslaunch mcl_ros mcl.launch reject_unknown_scan:=true
 ~~~
 
-Note that the unknown scans are automatically detected if the method presented in [1] is used since it simultaneously estimate the unknown class measurements.
+Note that the unknown scans are automatically detected if the method presented in [1] is used since it simultaneously estimates the unknown class measurements.
 
 
 

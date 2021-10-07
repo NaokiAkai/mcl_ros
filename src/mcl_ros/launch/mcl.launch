@@ -6,14 +6,15 @@
     <arg name="node_name" default="mcl" />
 
     <!-- Input messages -->
-    <arg name="scan_name" default="/scan" /> <!-- message type: sensor_msgs::LaserScan -->
-    <arg name="odom_name" default="/odom" /> <!-- message type: nav_msgs::Odometry -->
-    <arg name="map_name" default="/map" /> <!-- message type: nav_msgs::OccupancyGrid -->
+    <arg name="scan_name" default="/scan" /> <!-- sensor_msgs::LaserScan -->
+    <arg name="odom_name" default="/odom" /> <!-- nav_msgs::Odometry -->
+    <arg name="map_name" default="/map" /> <!-- nav_msgs::OccupancyGrid -->
 
     <!-- Output messages -->
-    <arg name="pose_name" default="/mcl_pose" /> <!-- message type: geometry_msgs::PoseStamped -->
-    <arg name="particles_name" default="/mcl_particles" /> <!-- message type: geometry_msgs::PoseArray -->
-    <arg name="unknown_scan_name" default="/unknown_scan" /> <!-- message type: sensor_msgs::LaserScan -->
+    <arg name="pose_name" default="/mcl_pose" /> <!-- geometry_msgs::PoseStamped -->
+    <arg name="particles_name" default="/mcl_particles" /> <!-- geometry_msgs::PoseArray -->
+    <arg name="unknown_scan_name" default="/unknown_scan" /> <!-- sensor_msgs::LaserScan -->
+    <arg name="residual_errors_name" default="/residual_errors" /> <!-- sensor_msgs::LaserScan -->
 
     <!-- TF frames -->
     <arg name="laser_frame" default="/laser" />
@@ -66,6 +67,10 @@
     <arg name="reject_unknown_scan" default="true" />
     <arg name="publish_unknown_scan" default="true" />
     <arg name="unknown_scan_prob_threshold" default="0.9" />
+
+    <!-- If publish_residual_errors is true,
+         the residual errors from the estimated pose will be published. -->
+    <arg name="publish_residual_errors" default="true" />
 
     <!-- Dense measurements must not be used for localization. 
          You can control how much measurements are skipped by scan_step.
@@ -142,6 +147,7 @@
         <param name="/pose_name" value="$(arg pose_name)" type="string" />
         <param name="/particles_name" value="$(arg particles_name)" type="string" />
         <param name="/unknown_scan_name" value="$(arg unknown_scan_name)" type="string" />
+        <param name="/residual_errors_name" value="$(arg residual_errors_name)" type="string" />
 
         <param name="/laser_frame" value="$(arg laser_frame)" type="string" />
         <param name="/base_link_frame" value="$(arg base_link_frame)" type="string" />
@@ -162,6 +168,8 @@
         <param name="/reject_unknown_scan" value="$(arg reject_unknown_scan)" type="bool" />
         <param name="/publish_unknown_scan" value="$(arg publish_unknown_scan)" type="bool" />
         <param name="/unknown_scan_prob_threshold" value="$(arg unknown_scan_prob_threshold)" type="double" />
+
+        <param name="/publish_residual_errors" value="$(arg publish_residual_errors)" tpye="bool" />
 
         <param name="/scan_step" value="$(arg scan_step)" type="int" />
 
