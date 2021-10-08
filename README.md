@@ -22,6 +22,10 @@ $ catkin_make
 
 
 
+If you do not want to make a new workspace for mcl_ros, please copy the mcl_ros package to your workspace.
+
+
+
 
 
 ## How to run

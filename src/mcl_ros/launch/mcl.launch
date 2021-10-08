@@ -157,7 +157,7 @@
 
         <param name="/particle_num" value="$(arg particle_num)" type="int" />
 
-        <param name="/use_augmented_mcl" value="$(arg use_augmented_mcl)" tpye="bool" />
+        <param name="/use_augmented_mcl" value="$(arg use_augmented_mcl)" type="bool" />
         <param name="/alpha_slow" value="$(arg alpha_slow)" type="double" />
         <param name="/alpha_fast" value="$(arg alpha_fast)" type="double" />
         <param name="/add_random_particles_in_resampling" value="$(arg add_random_particles_in_resampling)" type="bool" />
@@ -169,7 +169,7 @@
         <param name="/publish_unknown_scan" value="$(arg publish_unknown_scan)" type="bool" />
         <param name="/unknown_scan_prob_threshold" value="$(arg unknown_scan_prob_threshold)" type="double" />
 
-        <param name="/publish_residual_errors" value="$(arg publish_residual_errors)" tpye="bool" />
+        <param name="/publish_residual_errors" value="$(arg publish_residual_errors)" type="bool" />
 
         <param name="/scan_step" value="$(arg scan_step)" type="int" />
 

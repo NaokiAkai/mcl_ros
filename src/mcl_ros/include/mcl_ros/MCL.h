@@ -309,21 +309,6 @@ public:
         ROS_INFO("MCL ready to localize\n");
     }
 
-    void resetParticlesDistribution(void) {
-        particles_.resize(particlesNum_);
-        double xo = mclPose_.getX();
-        double yo = mclPose_.getY();
-        double yawo = mclPose_.getYaw();
-        double wo = 1.0 / (double)particlesNum_;
-        for (int i = 0; i < particlesNum_; ++i) {
-            double x = xo + nrand(initialNoise_[0]);
-            double y = yo + nrand(initialNoise_[1]);
-            double yaw = yawo + nrand(initialNoise_[2]);
-            particles_[i].setPose(x, y, yaw);
-            particles_[i].setW(wo);
-        }
-    }
-
     void updataParticlesByMotionModel(void) {
         double deltaX = deltaX_;
         double deltaY = deltaY_;
@@ -758,6 +743,21 @@ private:
         mclPose_.setPose(msg->pose.pose.position.x, msg->pose.pose.position.y, yaw);
         resetParticlesDistribution();
         isInitialized_ = true;
+    }
+
+    void resetParticlesDistribution(void) {
+        particles_.resize(particlesNum_);
+        double xo = mclPose_.getX();
+        double yo = mclPose_.getY();
+        double yawo = mclPose_.getYaw();
+        double wo = 1.0 / (double)particlesNum_;
+        for (int i = 0; i < particlesNum_; ++i) {
+            double x = xo + nrand(initialNoise_[0]);
+            double y = yo + nrand(initialNoise_[1]);
+            double yaw = yawo + nrand(initialNoise_[2]);
+            particles_[i].setPose(x, y, yaw);
+            particles_[i].setW(wo);
+        }
     }
 
     void rejectUnknownScan(void) {
