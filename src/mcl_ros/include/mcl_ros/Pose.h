@@ -1,6 +1,6 @@
 /****************************************************************************
  * mcl_ros: Monte Carlo localization with ROS
- * Copyright (C) 2021 Naoki Akai
+ * Copyright (C) 2021-2022 Naoki Akai
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
@@ -32,7 +32,7 @@ public:
         x_(0.0), y_(0.0), yaw_(0.0) {};
 
     Pose(double x, double y, double yaw):
-        x_(x), y_(y), yaw_(yaw) {};
+        x_(x), y_(y), yaw_(yaw) { modifyYaw(); };
 
     ~Pose() {};
 

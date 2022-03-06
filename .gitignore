@@ -4,6 +4,14 @@ build/*
 devel
 devel/*
 
+# Files
+src/mcl_ros/src/gl*
+src/mcl_ros/src/recorder*
+src/mcl_ros/src/scan*
+src/mcl_ros/include/mcl_ros/GL*
+src/mcl_ros/launch/gl*
+src/mcl_ros/*tmp
+
 # Prerequisites
 *.d
 

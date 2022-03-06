@@ -2,7 +2,7 @@
 
 ## About mcl_ros
 
-mcl_ros is a ROS package for mobile robot localization with 2D LiDAR. To implement localization, Monte Carlo localization (MCL) is used.
+mcl_ros is a ROS package for mobile robot localization with 2D LiDAR. Monte Carlo localization (MCL) is used as a localization algorithm.
 
 I confirmed that mcl_ros works on Ubuntu 18.04 and 20.04.
 
@@ -30,9 +30,9 @@ If you do not want to make a new workspace for mcl_ros, please copy the mcl_ros 
 
 ## How to run
 
-You need to publish sensor_msgs::LaserScan, nav_msgs::Odometry, and nav_msgs::OccupancyGrid messages. Default topic names are /scan, /odom, and /map.
+You need to publish sensor_msgs::LaserScan, nav_msgs::Odometry, and nav_msgs::OccupancyGrid messages. Default topic names are "/scan", "/odom", and "/map".
 
-In addition, you need to set static transform publisher between the base link to laser sensor frames. Default frame names are /base_link and /laser.
+In addition, you need to set static transform publisher between the base link to laser sensor frames. Default frame names are "base_link" and "laser".
 
 Then, run mcl_ros as
 

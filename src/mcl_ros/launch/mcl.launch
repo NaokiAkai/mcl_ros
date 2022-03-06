@@ -17,17 +17,20 @@
     <arg name="residual_errors_name" default="/residual_errors" /> <!-- sensor_msgs::LaserScan -->
 
     <!-- TF frames -->
-    <arg name="laser_frame" default="/laser" />
-    <arg name="base_link_frame" default="/base_link" />
-    <arg name="map_frame" default="/map" />
-    <arg name="odom_frame" default="/odom" />
+    <arg name="laser_frame" default="laser" />
+    <arg name="base_link_frame" default="base_link" />
+    <arg name="map_frame" default="map" />
+    <arg name="odom_frame" default="odom" />
     <arg name="use_odom_frame" default="true" />
-    <!-- If use_ofom_frame is true, MCL estimates the base link pose on the odometry frame.
+    <!-- If use_ofom_frame is true,
+         MCL broadcasts the transformation between the map and odometry frames.
          E.g., the tf tree will be "/map -> /odom -> /base_link -> /laser"
-         If not, MCL directly estimates the base link pose on the map frame.
+         If not, MCL does not broadcast the map-odom transformation.
          E.g., the tf tree will be "/map -> /base_link -> /laser"
-         If you just want to use localization, i.e., do not consider navigation in the odom frame,
-         use_odom_frame = false is recommended. -->
+         If you use an odometry node that broadcasts the odom-base-link frames,
+         but use_odom_frame is true, base_link_frame must not be comflicted.
+         E.g., the odometry node broadcasts /odom -> /base_link, 
+         base_link_frame has to be set to /mcl_base_link -->
 
 
 
@@ -41,7 +44,7 @@
 
     <!-- Numbers of particles
          In this MCL package, the numbers of the particles are constant. -->
-    <arg name="particle_num" default="100" />
+    <arg name="particle_num" default="200" />
 
     <!-- If use_augmented_mcl is true, augmented MCL is used.
          Augmented MCL adds random particles when doing resampling if MCL might fail localization.
@@ -59,12 +62,18 @@
         A default motion model is the differential drive model. -->
     <arg name="use_omni_directional_model" default="false" />
 
+    <!-- If use_odom_msg is true, the odometry message is used to predict the particles' pose.
+         If not, the particles' pose is predicted by linear interpolation of the past two poses,
+         and mcl_ros broadcasts the odom-base-link transformation.
+         mcl_ros works without odometry; however, the use of odometry is highly recommended. -->
+    <arg name="use_odom_msg" default="true" />
+
     <!-- If reject_unknown_scan is true,
          scans that might measure unknown obstacles are rejected before likelihood calculation.
          The scan rejection will perform when the likelihood field or beam models is used.
          If publish_unknown_scan is true, the rejected scan is published.
          unknown_scan_prob_threshold included from 0 to 1 is a threshold to reject the unknown scan. -->
-    <arg name="reject_unknown_scan" default="true" />
+    <arg name="reject_unknown_scan" default="false" />
     <arg name="publish_unknown_scan" default="true" />
     <arg name="unknown_scan_prob_threshold" default="0.9" />
 
@@ -87,7 +96,7 @@
     <arg name="z_short" default="0.2" />
     <arg name="z_max" default="0.05" />
     <arg name="z_rand" default="0.05" />
-    <arg name="var_hit" default="0.04" />
+    <arg name="var_hit" default="0.01" />
     <arg name="lambda_short" default="1.0" />
     <arg name="lambda_unknown" default="0.01" />
 
@@ -101,15 +110,35 @@
     <!-- localization Hz -->
     <arg name="localization_hz" default="10.0" />
 
+    <!-- localization type
+         If true, global localization is performed. -->
+    <arg name="perform_global_localization" default="false" />
+
+    <!-- Estimation resetting based on failure detection
+         If use_estimation_resetting is true,
+         estimation resetting based on failure detection is performed.
+         Mean absolute error (MAE) is used for the failure detection,
+         and max_residual_error is the maximum distance to calculate MAE.
+         min_valid_residual_error_num is the minimum number to decide
+         whether MAE is effective for the failure detection.
+         mean_absolute_error_threshold is a threshold to detect the failure.
+         Localization is classified as failed
+         if MAE continuously exceeds the threshold more than failure_cnt_threshold. --> 
+    <arg name="use_estimation_resetting" default="false" />
+    <arg name="max_residual_error" default="1.0" />
+    <arg name="min_valid_residual_error_num" default="10" />
+    <arg name="mean_absolute_error_threshold" default="0.1" />
+    <arg name="failure_cnt_threshold" default="30" />
+
     <!-- Initial pose (x [m], y [m], yaw [deg]) -->
     <rosparam param="/$(arg node_name)/initial_pose" > [0.0, 0.0, 0.0] </rosparam >
 
     <!-- Parameters used for determining initial particles distribution (x, y, yaw) -->
-    <rosparam param="/$(arg node_name)/initial_noise" > [0.2, 0.2, 0.02] </rosparam >
+    <rosparam param="/$(arg node_name)/initial_noise" > [0.3, 0.3, 0.02] </rosparam >
 
     <!-- Parameters used for randam particles in resampling (x, y, yaw).
          These parameters are used when use_augmented_mcl or add_random_particles_in_resampling is true. -->
-    <rosparam param="/$(arg node_name)/random_particles_noise" > [0.1, 0.1, 0.01] </rosparam >
+    <rosparam param="/$(arg node_name)/random_particles_noise" > [0.1, 0.1, 0.02] </rosparam >
 
     <!-- Motion noises -->
     <rosparam param="/$(arg node_name)/odom_noise_ddm" > [1.0, 0.5, 0.5, 1.0] </rosparam >
@@ -117,7 +146,7 @@
 
     <!-- Resampling thresholds to delta x, y, distance, yaw, and time, respectively. 
          If all parameters are set to minus, these thresholds are ignored. -->
-    <rosparam param="/$(arg node_name)/resample_thresholds" > [0.2, 0.2, 0.2, 0.02, 100000000.0] </rosparam >
+    <rosparam param="/$(arg node_name)/resample_thresholds" > [0.2, 0.2, 0.2, 0.02, -0.1] </rosparam >
 
 
 
@@ -133,7 +162,6 @@
         <arg name="map_name" value="$(arg map_name)" />
     </include >
  -->
-
 
 
 
@@ -165,6 +193,8 @@
 
         <param name="/use_omni_directional_model" value="$(arg use_omni_directional_model)" type="bool" />
 
+        <param name="/use_odom_msg" value="$(arg use_odom_msg)" type="bool" />
+
         <param name="/reject_unknown_scan" value="$(arg reject_unknown_scan)" type="bool" />
         <param name="/publish_unknown_scan" value="$(arg publish_unknown_scan)" type="bool" />
         <param name="/unknown_scan_prob_threshold" value="$(arg unknown_scan_prob_threshold)" type="double" />
@@ -185,6 +215,15 @@
 
         <param name="/resample_threshold_ess" value="$(arg resample_threshold_ess)" type="double" />
 
+        <param name="/use_estimation_resetting" value="$(arg use_estimation_resetting)" type="bool" />
+        <param name="/max_residual_error" value="$(arg max_residual_error)" type="double" />
+        <param name="/min_valid_residual_error_num" value="$(arg min_valid_residual_error_num)" type="int" />
+        <param name="/mean_absolute_error_threshold" value="$(arg mean_absolute_error_threshold)" type="double" />
+        <param name="/failure_cnt_threshold" value="$(arg failure_cnt_threshold)" type="int" />
+
         <param name="/localization_hz" value="$(arg localization_hz)" type="double" />
+
+        <param name="/perform_global_localization" value="$(arg perform_global_localization)" type="bool" />
     </node >
+
 </launch >

@@ -1,6 +1,6 @@
 /****************************************************************************
  * mcl_ros: Monte Carlo localization with ROS
- * Copyright (C) 2021 Naoki Akai
+ * Copyright (C) 2021-2022 Naoki Akai
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
@@ -21,12 +21,15 @@ int main(int argc, char **argv) {
 
     while (ros::ok()) {
         ros::spinOnce();
-        mcl.updataParticlesByMotionModel();
+        mcl.updateParticlesByMotionModel();
         mcl.setCanUpdateScan(false);
         mcl.calculateLikelihoodsByMeasurementModel();
+        mcl.calculateEffectiveSampleSize();
         mcl.estimatePose();
         mcl.resampleParticles();
+        mcl.estimateLocalizationCorrectness();
         mcl.publishROSMessages();
+        mcl.broadcastTF();
         mcl.setCanUpdateScan(true);
         mcl.printResult();
         loopRate.sleep();

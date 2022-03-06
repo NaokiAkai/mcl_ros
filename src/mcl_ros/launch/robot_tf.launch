@@ -1,8 +1,8 @@
 <!-- robot_tf.launch -->
 <launch >
-    <arg name="laser_frame" default="/laser" />
-    <arg name="base_link_frame" default="/base_link" />
-    <arg name="base_link_to_laser_x" default="0.0" />
+    <arg name="laser_frame" default="laser" />
+    <arg name="base_link_frame" default="base_link" />
+    <arg name="base_link_to_laser_x" default="0.5" />
     <arg name="base_link_to_laser_y" default="0.0" />
     <arg name="base_link_to_laser_yaw" default="0.0" />
     <arg name="publish_time_ms" default="100.0" />

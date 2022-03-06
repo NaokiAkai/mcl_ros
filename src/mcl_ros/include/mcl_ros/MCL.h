@@ -1,6 +1,6 @@
 /****************************************************************************
  * mcl_ros: Monte Carlo localization with ROS
- * Copyright (C) 2021 Naoki Akai
+ * Copyright (C) 2021-2022 Naoki Akai
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
@@ -23,6 +23,8 @@
 #include <nav_msgs/Odometry.h>
 #include <tf/transform_broadcaster.h>
 #include <tf/transform_listener.h>
+#include <tf2/convert.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <mcl_ros/Pose.h>
 #include <mcl_ros/Particle.h>
 
@@ -45,22 +47,27 @@ private:
     bool useOdomFrame_;
 
     std::vector<double> initialPose_;
-    Pose mclPose_, baseLink2Laser_, odomPose_;
+    Pose mclPose_, prevMCLPose_, baseLink2Laser_, odomPose_;
     ros::Time mclPoseStamp_, odomPoseStamp_;
+    // prevMCLPose_ is used to predict the particles' pose by linear interpolation.
+    // this prediction will be performed if useOdomMsg_ is false.
 
     // particles
     int particlesNum_;
     std::vector<Particle> particles_;
+    std::vector<int> resampleIndices_;
     std::vector<double> initialNoise_;
     bool useAugmentedMCL_, addRandomParticlesInResampling_;
     double randomParticlesRate_;
     std::vector<double> randomParticlesNoise_;
 
     // map
+    nav_msgs::OccupancyGrid ogm_;
     cv::Mat distMap_;
     double mapResolution_;
     Pose mapOrigin_;
     int mapWidth_, mapHeight_;
+    double freeSpaceMinX_, freeSpaceMaxX_, freeSpaceMinY_, freeSpaceMaxY_;
     bool gotMap_;
 
     // motion
@@ -69,6 +76,7 @@ private:
     std::vector<double> resampleThresholds_;
     std::vector<double> odomNoiseDDM_, odomNoiseODM_;
     bool useOmniDirectionalModel_;
+    bool useOdomMsg_;
 
     // measurements
     sensor_msgs::LaserScan scan_, unknownScan_;
@@ -88,10 +96,22 @@ private:
     bool gotScan_;
     double resampleThresholdESS_;
 
+    // localization type
+    bool performGlobalLocalization_;
+
     // localization result
     double totalLikelihood_, averageLikelihood_, maxLikelihood_;
     double amclRandomParticlesRate_, effectiveSampleSize_;
     int maxLikelihoodParticleIdx_;
+
+    // localization correctness estimation
+    float maxResidualError_;
+    int minValidResidualErrorNum_;
+    float meanAbsoluteErrorThreshold_;
+    int failureCntThreshold_;
+    bool useEstimationResetting_;
+    double meanAbsoluteError_;
+    int failureCnt_;
 
     // other parameters
     tf::TransformBroadcaster tfBroadcaster_;
@@ -105,9 +125,43 @@ private:
 public:
     // inline setting functions
     inline void setCanUpdateScan(bool canUpdateScan) { canUpdateScan_ = canUpdateScan; }
+    inline void setDeltaX(double deltaX) { deltaX_ = deltaX; }
+    inline void setDeltaY(double deltaY) { deltaY_ = deltaY; }
+    inline void setDeltaDist(double deltaDist) { deltaDist_ = deltaDist; }
+    inline void setDeltaYaw(double deltaYaw) { deltaYaw_ = deltaYaw; }
+    inline void setDeltaXSum(double deltaXSum) { deltaXSum_ = deltaXSum; }
+    inline void setDeltaYSum(double deltaYSum) { deltaYSum_ = deltaYSum; }
+    inline void setDeltaDistSum(double deltaDistSum) { deltaDistSum_ = deltaDistSum; }
+    inline void setDeltaYawSum(double deltaYawSum) { deltaYawSum_ = deltaYawSum; }
+    inline void setParticlePose(int i, double x, double y, double yaw) { particles_[i].setPose(x, y, yaw); }
+    inline void setParticleW(int i, double w) { particles_[i].setW(w); }
+    inline void setUseOdomMsg(bool useOdomMsg) { useOdomMsg_ = useOdomMsg; }
+    inline void setTotalLikelihood(double totalLikelihood) { totalLikelihood_ = totalLikelihood; }
+    inline void setAverageLikelihood(double averageLikelihood) { averageLikelihood_ = averageLikelihood; }
+    inline void setMaxLikelihood(double maxLikelihood) { maxLikelihood_ = maxLikelihood; }
+    inline void setMaxLikelihoodParticleIdx(int maxLikelihoodParticleIdx) { maxLikelihoodParticleIdx_ = maxLikelihoodParticleIdx; }
 
     // inline getting functions
     inline double getLocalizationHz(void) { return localizationHz_; }
+    inline double getDeltaX(void) { return deltaX_; }
+    inline double getDeltaY(void) { return deltaY_; }
+    inline double getDeltaDist(void) { return deltaDist_; }
+    inline double getDeltaYaw(void) { return deltaYaw_; }
+    inline double getDeltaXSum(void) { return deltaXSum_; }
+    inline double getDeltaYSum(void) { return deltaYSum_; }
+    inline double getDeltaDistSum(void) { return deltaDistSum_; }
+    inline double getDeltaYawSum(void) { return deltaYawSum_; }
+    inline bool getUseOmniDirectionalModel(void) { return useOmniDirectionalModel_; }
+    inline std::vector<double> getOdomNoiseDDM(void) { return odomNoiseDDM_; }
+    inline std::vector<double> getOdomNoiseODM(void) { return odomNoiseODM_; }
+    inline Pose getMCLPose(void) { return mclPose_; }
+    inline Pose getBaseLink2Laser(void) { return baseLink2Laser_; }
+    inline int getParticlesNum(void) { return particlesNum_; }
+    inline Pose getParticlePose(int i) { return particles_[i].getPose(); }
+    inline double getParticleW(int i) { return particles_[i].getW(); }
+    inline std::vector<int> getResampleIndices(void) { return resampleIndices_; }
+    inline double getResampleThresholdESS(void) { return resampleThresholdESS_; }
+    inline double getEffectiveSampleSize(void) { return effectiveSampleSize_; }
 
     MCL(void):
         nh_("~"),
@@ -118,10 +172,10 @@ public:
         particlesName_("/mcl_particles"),
         unknownScanName_("/unknown_scan"),
         residualErrorsName_("/residual_errors"),
-        laserFrame_("/laser"),
-        baseLinkFrame_("/base_link"),
-        mapFrame_("/map"),
-        odomFrame_("/odom"),
+        laserFrame_("laser"),
+        baseLinkFrame_("base_link"),
+        mapFrame_("map"),
+        odomFrame_("odom"),
         useOdomFrame_(true),
         initialPose_({0.0, 0.0, 0.0}),
         particlesNum_(100),
@@ -139,6 +193,7 @@ public:
         deltaTimeSum_(0.0),
         resampleThresholds_({-1.0, -1.0, -1.0, -1.0, -1.0}),
         useOmniDirectionalModel_(false),
+        useOdomMsg_(true),
         measurementModelType_(0),
         pKnownPrior_(0.5),
         pUnknownPrior_(0.5),
@@ -158,7 +213,13 @@ public:
         publishUnknownScan_(false),
         publishResidualErrors_(false),
         resampleThresholdESS_(0.5),
+        maxResidualError_(1.0f),
+        minValidResidualErrorNum_(10),
+        meanAbsoluteErrorThreshold_(0.5f),
+        failureCntThreshold_(10),
+        useEstimationResetting_(false),
         localizationHz_(10.0),
+        performGlobalLocalization_(false),
         gotMap_(false),
         gotScan_(false),
         isInitialized_(true),
@@ -166,6 +227,9 @@ public:
         tfListener_(),
         rad2deg_(180.0 / M_PI)
     {
+        // set seed for the random values based on the current time
+        srand((unsigned int)time(NULL));
+
         // topic and frame names
         nh_.param("scan_name", scanName_, scanName_);
         nh_.param("odom_name", odomName_, odomName_);
@@ -193,6 +257,7 @@ public:
         nh_.param("odom_noise_ddm", odomNoiseDDM_, odomNoiseDDM_);
         nh_.param("odom_noise_odm", odomNoiseODM_, odomNoiseODM_);
         nh_.param("use_omni_directional_model", useOmniDirectionalModel_, useOmniDirectionalModel_);
+        nh_.param("use_odom_msg", useOdomMsg_, useOdomMsg_);
 
         // measurement model
         nh_.param("measurement_model_type", measurementModelType_, measurementModelType_);
@@ -215,8 +280,18 @@ public:
         nh_.param("resample_thresholds", resampleThresholds_, resampleThresholds_);
         pUnknownPrior_ = 1.0 - pKnownPrior_;
 
+        // localization correctness estimation
+        nh_.param("use_estimation_resetting", useEstimationResetting_, useEstimationResetting_);
+        nh_.param("max_residual_error", maxResidualError_, maxResidualError_);
+        nh_.param("min_valid_residual_error_num", minValidResidualErrorNum_, minValidResidualErrorNum_);
+        nh_.param("mean_absolute_error_threshold", meanAbsoluteErrorThreshold_, meanAbsoluteErrorThreshold_);
+        nh_.param("failure_cnt_threshold", failureCntThreshold_, failureCntThreshold_);
+
         // other parameters
         nh_.param("localization_hz", localizationHz_, localizationHz_);
+
+        // localization type
+        nh_.param("perform_global_localization", performGlobalLocalization_, performGlobalLocalization_);
 
         // set subscribers
         scanSub_ = nh_.subscribe(scanName_, 10, &MCL::scanCB, this);
@@ -232,7 +307,8 @@ public:
 
         // set initial pose
         mclPose_.setPose(initialPose_[0], initialPose_[1], initialPose_[2]);
-        resetParticlesDistribution();
+        prevMCLPose_ = mclPose_;
+        odomPose_.setPose(0.0, 0.0, 0.0);
 
         // get the relative pose from the base link to the laser from the tf tree
         ros::Rate loopRate(10);
@@ -247,7 +323,7 @@ public:
                 break;
             } catch (tf::TransformException ex) {
                 tfFailedCnt++;
-                if (tfFailedCnt >= 30) {
+                if (tfFailedCnt >= 10) {
                     ROS_ERROR("Cannot get the relative pose from the base link to the laser from the tf tree."
                         " Did you set the static transform publisher between %s to %s?",
                         baseLinkFrame_.c_str(), laserFrame_.c_str());
@@ -297,6 +373,13 @@ public:
             loopRate.sleep();
         }
 
+        // reset particles distribution
+        if (performGlobalLocalization_)
+            resetParticlesDistributionGlobally();
+        else
+            resetParticlesDistribution();
+        resampleIndices_.resize(particlesNum_);
+
         // measurement model
         normConstHit_ = 1.0 / sqrt(2.0 * varHit_ * M_PI);
         denomHit_ = 1.0 / (2.0 * varHit_);
@@ -305,16 +388,45 @@ public:
         measurementModelInvalidScan_ = zMax_ + zRand_ * pRand_;
 
         isInitialized_ = true;
+        if (!useOdomMsg_)
+            isInitialized_ = false;
 
         ROS_INFO("MCL ready to localize\n");
     }
 
-    void updataParticlesByMotionModel(void) {
-        double deltaX = deltaX_;
-        double deltaY = deltaY_;
-        double deltaDist = deltaDist_;
-        double deltaYaw = deltaYaw_;
-        deltaX_ = deltaY_ = deltaDist_ = deltaYaw_ = 0.0;
+    void updateParticlesByMotionModel(void) {
+        double deltaX, deltaY, deltaDist, deltaYaw;
+        if (useOdomMsg_) {
+            deltaX = deltaX_;
+            deltaY = deltaY_;
+            deltaDist = deltaDist_;
+            deltaYaw = deltaYaw_;
+            deltaX_ = deltaY_ = deltaDist_ = deltaYaw_ = 0.0;
+        } else {
+            // estimate robot's moving using the linear interpolation of the estimated pose
+            double dx = mclPose_.getX() - prevMCLPose_.getX();
+            double dy = mclPose_.getY() - prevMCLPose_.getY();
+            double dyaw = mclPose_.getYaw() - prevMCLPose_.getYaw();
+            while (dyaw < -M_PI)
+                dyaw += 2.0 * M_PI;
+            while (dyaw > M_PI)
+                dyaw -= 2.0 * M_PI;
+            double t = -(atan2(dy, dx) - prevMCLPose_.getYaw());
+            deltaX = dx * cos(t) - dy * sin(t);
+            deltaY = dx * sin(t) + dy * cos(t);
+            deltaYaw = dyaw;
+            deltaDist = sqrt(dx * dx + dy * dy);
+            if (dx < 0.0)
+                deltaDist *= -1.0;   
+            prevMCLPose_ = mclPose_;
+
+            // calculate odometry
+            double th = odomPose_.getYaw() + deltaYaw / 2.0;
+            double x = odomPose_.getX() + deltaDist * cos(th);
+            double y = odomPose_.getY() + deltaDist * sin(th);
+            double yaw = odomPose_.getYaw() + deltaYaw;
+            odomPose_.setPose(x, y, yaw);
+        }
         deltaXSum_ += fabs(deltaX);
         deltaYSum_ += fabs(deltaY);
         deltaDistSum_ += fabs(deltaDist);
@@ -402,9 +514,9 @@ public:
 
             // Too small values cannot be calculated.
             // The log sum values are shifted if the maximum value is less than threshold.
-            if (max < -400.0) {
+            if (max < -300.0) {
                 for (int j = 0; j < particlesNum_; ++j) {
-                    double w = particles_[j].getW() + 400.0;
+                    double w = particles_[j].getW() + 300.0;
                     particles_[j].setW(w);
                 }
             }
@@ -432,10 +544,13 @@ public:
         maxLikelihoodParticleIdx_ = maxIdx;
 
         // augmented MCL
+//        std::cout << "totalLikelihood_ = " << totalLikelihood_ << std::endl;
+//        std::cout << "maxLikelihood_ = " << maxLikelihood_ << std::endl;
+//        std::cout << "averageLikelihood_ = " << averageLikelihood_ << std::endl;
         omegaSlow_ += alphaSlow_ * (averageLikelihood_ - omegaSlow_);
         omegaFast_ += alphaFast_ * (averageLikelihood_ - omegaFast_);
         amclRandomParticlesRate_ = 1.0 - omegaFast_ / omegaSlow_;
-        if (amclRandomParticlesRate_ < 0.0)
+        if (amclRandomParticlesRate_ < 0.0 || std::isnan(amclRandomParticlesRate_))
             amclRandomParticlesRate_ = 0.0;
 
         // If publishUnknownScan_ is true and the class conditional measurement model is used,
@@ -444,18 +559,20 @@ public:
             Pose mlPose = particles_[maxLikelihoodParticleIdx_].getPose();
             estimateUnknownScanWithClassConditionalMeasurementModel(mlPose);
         }
+    }
 
+    void calculateEffectiveSampleSize(void) {
         // calculate the effective sample size
-        double sum2 = 0.0;
+        double sum = 0.0;
         double wo = 1.0 / (double)particlesNum_;
         for (int i = 0; i < particlesNum_; ++i) {
-            double w = particles_[i].getW() / sum;
+            double w = particles_[i].getW() / totalLikelihood_;
             if (std::isnan(w))
                 w = wo;
             particles_[i].setW(w);
-            sum2 += w * w;
+            sum += w * w;
         }
-        effectiveSampleSize_ = 1.0 / sum2;
+        effectiveSampleSize_ = 1.0 / sum;
     }
 
     void estimatePose(void) {
@@ -503,6 +620,7 @@ public:
                     if (darts < wBuffer[j]) {
                         particles_[i].setPose(tmpParticles[j].getPose());
                         particles_[i].setW(wo);
+                        resampleIndices_[i] = j;
                         break;
                     }
                 }
@@ -524,6 +642,7 @@ public:
                     if (darts < wBuffer[j]) {
                         particles_[i].setPose(tmpParticles[j].getPose());
                         particles_[i].setW(wo);
+                        resampleIndices_[i] = j;
                         break;
                     }
                 }
@@ -537,6 +656,7 @@ public:
                 double yaw = yawo + nrand(randomParticlesNoise_[2]);
                 particles_[i].setPose(x, y, yaw);
                 particles_[i].setW(wo);
+                resampleIndices_[i] = -1;
             }
         }
     }
@@ -568,6 +688,44 @@ public:
         return residualErrors;
     }
 
+    float getMeanAbsoluteError(std::vector<float> residualErrors) {
+        float sum = 0.0f;
+        int validRENum = 0;
+        for (int i = 0; i < (int)residualErrors.size(); ++i) {
+            float e = residualErrors[i];
+            if (0.0 <= e && e < maxResidualError_) {
+                sum += e;
+                validRENum++;
+            }
+        }
+        if (validRENum < minValidResidualErrorNum_)
+            return -1.0f;
+        else
+            return (sum / (float)validRENum);
+    }
+
+    void estimateLocalizationCorrectness(void) {
+        if (!useEstimationResetting_)
+            return;
+
+        static int failureCnt = 0;
+        std::vector<float> residualErrors = getResidualErrors();
+        float mae = getMeanAbsoluteError(residualErrors);
+        if (mae < 0.0f || meanAbsoluteErrorThreshold_ < mae)
+            failureCnt++;
+        else
+            failureCnt = 0;
+        meanAbsoluteError_ = mae;
+        failureCnt_ = failureCnt;
+        if (failureCnt >= failureCntThreshold_) {
+            if (performGlobalLocalization_)
+                resetParticlesDistributionGlobally();
+            else
+                resetParticlesDistribution();
+            failureCnt = 0;
+        }
+    }
+
     void printResult(void) {
         std::cout << "MCL: x = " << mclPose_.getX() << " [m], y = " << mclPose_.getY() << " [m], yaw = " << mclPose_.getYaw() * rad2deg_ << " [deg]" << std::endl;
         std::cout << "Odom: x = " << odomPose_.getX() << " [m], y = " << odomPose_.getY() << " [m], yaw = " << odomPose_.getYaw() * rad2deg_ << " [deg]" << std::endl;
@@ -575,7 +733,10 @@ public:
         std::cout << "average likelihood = " << averageLikelihood_ << std::endl;
         std::cout << "max likelihood = " << maxLikelihood_ << std::endl;
         std::cout << "effective sample size = " << effectiveSampleSize_ << std::endl;
-        std::cout << "amcl random particles rate = " << amclRandomParticlesRate_ << std::endl;
+        if (useAugmentedMCL_)
+            std::cout << "amcl random particles rate = " << amclRandomParticlesRate_ << std::endl;
+        if (useEstimationResetting_)
+            std::cout << "mean absolute error = " << meanAbsoluteError_ << " [m] (failureCnt = " << failureCnt_ << ")" << std::endl;
         std::cout << std::endl;
     }
 
@@ -603,30 +764,6 @@ public:
         }
         particlesPub_.publish(particlesPoses);
 
-        // tf from odom to base link (mcl frame)
-        if (useOdomFrame_) {
-            double dx = mclPose_.getX() - odomPose_.getX();
-            double dy = mclPose_.getY() - odomPose_.getY();
-            double dyaw = mclPose_.getYaw() - odomPose_.getYaw();
-            double l = sqrt(dx * dx + dy * dy);
-            double t = atan2(dy, dx) - odomPose_.getYaw();
-            double x = l * cos(t);
-            double y = l * sin(t);
-            tf::Transform tf;
-            tf::Quaternion q;
-            tf.setOrigin(tf::Vector3(x, y, 0.0));
-            q.setRPY(0.0, 0.0, dyaw);
-            tf.setRotation(q);
-            tfBroadcaster_.sendTransform(tf::StampedTransform(tf, mclPoseStamp_, odomFrame_, baseLinkFrame_));
-        } else {
-            tf::Transform tf;
-            tf::Quaternion q;
-            tf.setOrigin(tf::Vector3(mclPose_.getX(), mclPose_.getY(), 0.0));
-            q.setRPY(0.0, 0.0, mclPose_.getYaw());
-            tf.setRotation(q);
-            tfBroadcaster_.sendTransform(tf::StampedTransform(tf, mclPoseStamp_, mapFrame_, baseLinkFrame_));
-        }
-
         // unknown scan
         if (publishUnknownScan_ && (rejectUnknownScan_ || measurementModelType_ == 2))
             unknownScanPub_.publish(unknownScan_);
@@ -639,11 +776,69 @@ public:
         }
     }
 
+    void broadcastTF(void) {
+        if (useOdomFrame_) {
+            if (!useOdomMsg_) {
+                geometry_msgs::TransformStamped odom2baseLinkTrans;
+                odom2baseLinkTrans.header.stamp = mclPoseStamp_;
+                odom2baseLinkTrans.header.frame_id = odomFrame_;
+                odom2baseLinkTrans.child_frame_id = baseLinkFrame_;
+                odom2baseLinkTrans.transform.translation.x = odomPose_.getX();
+                odom2baseLinkTrans.transform.translation.y = odomPose_.getY();
+                odom2baseLinkTrans.transform.translation.z = 0.0;
+                odom2baseLinkTrans.transform.rotation = tf::createQuaternionMsgFromYaw(odomPose_.getYaw());
+                tfBroadcaster_.sendTransform(odom2baseLinkTrans);
+            }
+
+            geometry_msgs::Pose poseOnMap;
+            poseOnMap.position.x = mclPose_.getX();
+            poseOnMap.position.y = mclPose_.getY();
+            poseOnMap.position.z = 0.0;
+            poseOnMap.orientation = tf::createQuaternionMsgFromYaw(mclPose_.getYaw());
+            tf2::Transform map2baseTrans;
+            tf2::convert(poseOnMap, map2baseTrans);
+
+            geometry_msgs::Pose poseOnOdom;
+            poseOnOdom.position.x = odomPose_.getX();
+            poseOnOdom.position.y = odomPose_.getY();
+            poseOnOdom.position.z = 0.0;
+            poseOnOdom.orientation = tf::createQuaternionMsgFromYaw(odomPose_.getYaw());
+            tf2::Transform odom2baseTrans;
+            tf2::convert(poseOnOdom, odom2baseTrans);
+
+            tf2::Transform map2odomTrans = map2baseTrans * odom2baseTrans.inverse();
+            geometry_msgs::TransformStamped map2odomStampedTrans;
+            map2odomStampedTrans.header.stamp = mclPoseStamp_;
+            map2odomStampedTrans.header.frame_id = mapFrame_;
+            map2odomStampedTrans.child_frame_id = odomFrame_;
+            tf2::convert(map2odomTrans, map2odomStampedTrans.transform);
+            tfBroadcaster_.sendTransform(map2odomStampedTrans);
+        } else {
+            tf::Transform tf;
+            tf::Quaternion q;
+            tf.setOrigin(tf::Vector3(mclPose_.getX(), mclPose_.getY(), 0.0));
+            q.setRPY(0.0, 0.0, mclPose_.getYaw());
+            tf.setRotation(q);
+            tfBroadcaster_.sendTransform(tf::StampedTransform(tf, mclPoseStamp_, mapFrame_, baseLinkFrame_));
+        }
+    }
+
 private:
     inline double nrand(double n) { return (n * sqrt(-2.0 * log((double)rand() / RAND_MAX)) * cos(2.0 * M_PI * rand() / RAND_MAX)); }
+    inline double urand(double min, double max) { return ((max - min)  * (double)rand() / RAND_MAX + min); }
 
     inline bool onMap(int u, int v) {
         if (0 <= u && u < mapWidth_ && 0 <= v && v < mapHeight_)
+            return true;
+        else
+            return false;
+    }
+
+    inline bool onFreeSpace(int u, int v) {
+        if (!onMap(u, v))
+            return false;
+        int node = v * mapWidth_ + u;
+        if (ogm_.data[node] == 0)
             return true;
         else
             return false;
@@ -659,6 +854,16 @@ private:
         *v = (int)(yy / mapResolution_);
     }
 
+    inline void uv2xy(int u, int v, double *x, double *y) {
+        double xx = (double)u * mapResolution_;
+        double yy = (double)v * mapResolution_;
+        double yaw = mapOrigin_.getYaw();
+        double dx = xx * cos(yaw) - yy * sin(yaw);
+        double dy = xx * sin(yaw) + yy * cos(yaw);
+        *x = dx + mapOrigin_.getX();
+        *y = dy + mapOrigin_.getY();
+    }
+
     void scanCB(const sensor_msgs::LaserScan::ConstPtr &msg) {
         if (canUpdateScan_)
             scan_ = *msg;
@@ -667,6 +872,9 @@ private:
     }
 
     void odomCB(const nav_msgs::Odometry::ConstPtr &msg) {
+        if (!useOdomMsg_)
+            return;
+
         static double prevTime;
         double currTime = msg->header.stamp.toSec();
         if (isInitialized_) {
@@ -695,30 +903,11 @@ private:
     }
 
     void mapCB(const nav_msgs::OccupancyGrid::ConstPtr &msg) {
-        // perform distance transform to build the distance field
+        // store the map information
+        ogm_ = *msg;
         mapWidth_ = msg->info.width;
         mapHeight_ = msg->info.height;
         mapResolution_ = msg->info.resolution;
-        cv::Mat binMap(mapHeight_, mapWidth_, CV_8UC1);
-        for (int v = 0; v < mapHeight_; v++) {
-            for (int u = 0; u < mapWidth_; u++) {
-                int node = v * mapWidth_ + u;
-                int val = msg->data[node];
-                if (val == 100)
-                    binMap.at<uchar>(v, u) = 0;
-                else
-                    binMap.at<uchar>(v, u) = 1;
-            }
-        }
-        cv::Mat distMap(mapHeight_, mapWidth_, CV_32FC1);
-        cv::distanceTransform(binMap, distMap, cv::DIST_L2, 5);
-        for (int v = 0; v < mapHeight_; v++) {
-            for (int u = 0; u < mapWidth_; u++) {
-                float d = distMap.at<float>(v, u) * (float)mapResolution_;
-                distMap.at<float>(v, u) = d;
-            }
-        }
-        distMap_ = distMap;
         tf::Quaternion q(msg->info.origin.orientation.x, 
             msg->info.origin.orientation.y, 
             msg->info.origin.orientation.z,
@@ -729,6 +918,55 @@ private:
         mapOrigin_.setX(msg->info.origin.position.x);
         mapOrigin_.setY(msg->info.origin.position.y);
         mapOrigin_.setYaw(yaw);
+
+        // perform distance transform to build the distance field
+        // the min and max points of the free space are also obtained
+        cv::Mat binMap(mapHeight_, mapWidth_, CV_8UC1);
+        double minX, maxX, minY, maxY;
+        bool isFirst = true;
+        for (int v = 0; v < mapHeight_; v++) {
+            for (int u = 0; u < mapWidth_; u++) {
+                int node = v * mapWidth_ + u;
+                int val = msg->data[node];
+                if (val == 100) {
+                    // occupied grid
+                    binMap.at<uchar>(v, u) = 0;
+                } else {
+                    binMap.at<uchar>(v, u) = 1;
+                    if (val == 0) {
+                        double x, y;
+                        uv2xy(u, v, &x, &y);
+                        if (isFirst) {
+                            minX = maxX = x;
+                            minY = maxY = y;
+                            isFirst = false;
+                        } else {
+                            if (x < minX)
+                                minX = x;
+                            if (x > maxX)
+                                maxX = x;
+                            if (y < minY)
+                                minY = y;
+                            if (y > maxY)
+                                maxY = y;
+                        }
+                    }
+                }
+            }
+        }
+        freeSpaceMinX_ = minX;
+        freeSpaceMaxX_ = maxX;
+        freeSpaceMinY_ = minY;
+        freeSpaceMaxY_ = maxY;
+        cv::Mat distMap(mapHeight_, mapWidth_, CV_32FC1);
+        cv::distanceTransform(binMap, distMap, cv::DIST_L2, 5);
+        for (int v = 0; v < mapHeight_; v++) {
+            for (int u = 0; u < mapWidth_; u++) {
+                float d = distMap.at<float>(v, u) * (float)mapResolution_;
+                distMap.at<float>(v, u) = d;
+            }
+        }
+        distMap_ = distMap;
         gotMap_ = true;
     }
 
@@ -742,6 +980,7 @@ private:
         m.getRPY(roll, pitch, yaw);
         mclPose_.setPose(msg->pose.pose.position.x, msg->pose.pose.position.y, yaw);
         resetParticlesDistribution();
+        omegaSlow_ = omegaFast_ = 0.0;
         isInitialized_ = true;
     }
 
@@ -757,6 +996,25 @@ private:
             double yaw = yawo + nrand(initialNoise_[2]);
             particles_[i].setPose(x, y, yaw);
             particles_[i].setW(wo);
+        }
+    }
+
+    void resetParticlesDistributionGlobally(void) {
+        particles_.resize(particlesNum_);
+        double wo = 1.0 / (double)particlesNum_;
+        for (int i = 0; i < particlesNum_; ++i) {
+            for (;;) {
+                double x = urand(freeSpaceMinX_, freeSpaceMaxX_);
+                double y = urand(freeSpaceMinY_, freeSpaceMaxY_);
+                int u, v;
+                xy2uv(x, y, &u, &v);
+                if (onFreeSpace(u, v)) {
+                    double yaw = urand(-M_PI, M_PI);
+                    particles_[i].setPose(x, y, yaw);
+                    particles_[i].setW(wo);
+                    break;
+                }
+            }
         }
     }
 
@@ -909,7 +1167,7 @@ private:
         return p;
     }
 
-    double estimateUnknownScanWithClassConditionalMeasurementModel(Pose pose) {
+    void estimateUnknownScanWithClassConditionalMeasurementModel(Pose pose) {
         unknownScan_ = scan_;
         double sensorX = pose.getX();
         double sensorY = pose.getY();
