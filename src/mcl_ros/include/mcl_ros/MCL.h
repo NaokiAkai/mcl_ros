@@ -421,11 +421,19 @@ public:
             prevMCLPose_ = mclPose_;
 
             // calculate odometry
-            double th = odomPose_.getYaw() + deltaYaw / 2.0;
-            double x = odomPose_.getX() + deltaDist * cos(th);
-            double y = odomPose_.getY() + deltaDist * sin(th);
-            double yaw = odomPose_.getYaw() + deltaYaw;
-            odomPose_.setPose(x, y, yaw);
+            if (!useOmniDirectionalModel_) {
+                double t = odomPose_.getYaw() + deltaYaw / 2.0;
+                double x = odomPose_.getX() + deltaDist * cos(t);
+                double y = odomPose_.getY() + deltaDist * sin(t);
+                double yaw = odomPose_.getYaw() + deltaYaw;
+                odomPose_.setPose(x, y, yaw);
+            } else {
+                double t = odomPose_.getYaw() + deltaYaw / 2.0;
+                double x = odomPose_.getX() + deltaX * cos(t) + deltaY * cos(t + M_PI / 2.0f);
+                double y = odomPose_.getY() + deltaX * sin(t) + deltaY * sin(t + M_PI / 2.0f);;
+                double yaw = odomPose_.getYaw() + deltaYaw;
+                odomPose_.setPose(x, y, yaw);
+            }
         }
         deltaXSum_ += fabs(deltaX);
         deltaYSum_ += fabs(deltaY);
