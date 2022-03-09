@@ -114,6 +114,11 @@
          If true, global localization is performed. -->
     <arg name="perform_global_localization" default="false" />
 
+    <!-- broadcast transformation, i.e., tf, or not
+         If broadcast_tf is true, transformation between map and odom is broadcasted.
+         Note transformation between map and base link is broadcasted if use_odom_frame is false. -->
+    <arg name="broadcast_tf" default="true" />
+
     <!-- Estimation resetting based on failure detection
          If use_estimation_resetting is true,
          estimation resetting based on failure detection is performed.
@@ -224,6 +229,7 @@
         <param name="/localization_hz" value="$(arg localization_hz)" type="double" />
 
         <param name="/perform_global_localization" value="$(arg perform_global_localization)" type="bool" />
+        <param name="/broadcast_tf" value="$(arg broadcast_tf)" type="bool" />
     </node >
 
 </launch >

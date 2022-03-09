@@ -99,6 +99,9 @@ private:
     // localization type
     bool performGlobalLocalization_;
 
+    // broadcast tf
+    bool broadcastTF_;
+
     // localization result
     double totalLikelihood_, averageLikelihood_, maxLikelihood_;
     double amclRandomParticlesRate_, effectiveSampleSize_;
@@ -220,6 +223,7 @@ public:
         useEstimationResetting_(false),
         localizationHz_(10.0),
         performGlobalLocalization_(false),
+        broadcastTF_(true),
         gotMap_(false),
         gotScan_(false),
         isInitialized_(true),
@@ -289,6 +293,7 @@ public:
 
         // other parameters
         nh_.param("localization_hz", localizationHz_, localizationHz_);
+        nh_.param("broadcast_tf", broadcastTF_, broadcastTF_);
 
         // localization type
         nh_.param("perform_global_localization", performGlobalLocalization_, performGlobalLocalization_);
@@ -785,6 +790,9 @@ public:
     }
 
     void broadcastTF(void) {
+        if (!broadcastTF_)
+            return;
+
         if (useOdomFrame_) {
             if (!useOdomMsg_) {
                 geometry_msgs::TransformStamped odom2baseLinkTrans;
