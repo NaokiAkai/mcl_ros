@@ -314,6 +314,7 @@ public:
         mclPose_.setPose(initialPose_[0], initialPose_[1], initialPose_[2]);
         prevMCLPose_ = mclPose_;
         odomPose_.setPose(0.0, 0.0, 0.0);
+        deltaX_ = deltaY_ = deltaDist_ = deltaYaw_ = 0.0;
 
         // get the relative pose from the base link to the laser from the tf tree
         ros::Rate loopRate(10);
@@ -904,6 +905,10 @@ private:
         deltaY_ += msg->twist.twist.linear.y * deltaTime;
         deltaDist_ += msg->twist.twist.linear.x * deltaTime;
         deltaYaw_ += msg->twist.twist.angular.z * deltaTime;
+        while (deltaYaw_ < -M_PI)
+            deltaYaw_ += 2.0 * M_PI;
+        while (deltaYaw_ > M_PI)
+            deltaYaw_ -= 2.0 * M_PI;
         deltaTimeSum_ += deltaTime;
 
         tf::Quaternion q(msg->pose.pose.orientation.x, 
