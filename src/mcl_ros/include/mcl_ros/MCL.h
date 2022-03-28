@@ -324,7 +324,7 @@ public:
             ros::spinOnce();
             try {
                 ros::Time now = ros::Time::now();
-                tfListener_.waitForTransform(baseLinkFrame_, laserFrame_, now, ros::Duration(1.0));
+                tfListener_.waitForTransform(baseLinkFrame_, laserFrame_, now, ros::Duration(5.0));
                 tfListener_.lookupTransform(baseLinkFrame_, laserFrame_, now, tfBaseLink2Laser);
                 break;
             } catch (tf::TransformException ex) {
@@ -1190,9 +1190,10 @@ private:
 
     void estimateUnknownScanWithClassConditionalMeasurementModel(Pose pose) {
         unknownScan_ = scan_;
-        double sensorX = pose.getX();
-        double sensorY = pose.getY();
-        double sensorYaw = pose.getYaw();
+        double yaw = pose.getYaw();
+        double sensorX = baseLink2Laser_.getX() * cos(yaw) - baseLink2Laser_.getY() * sin(yaw) + pose.getX();
+        double sensorY = baseLink2Laser_.getX() * sin(yaw) + baseLink2Laser_.getY() * cos(yaw) + pose.getY();
+        double sensorYaw = baseLink2Laser_.getYaw() + yaw;
         for (int i = 0; i < (int)unknownScan_.ranges.size(); ++i) {
             double r = unknownScan_.ranges[i];
             if (r <= unknownScan_.range_min || unknownScan_.range_max <= r) {

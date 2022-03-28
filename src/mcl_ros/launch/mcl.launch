@@ -86,7 +86,7 @@
          scan_step must be larger than 0.
          E.e., if you use Hokuyo LiDAR TOP-URG, it can measure 1081 points
          and scan_step = 10 or 5 is recommended. -->
-    <arg name="scan_step" default="1" />
+    <arg name="scan_step" default="5" />
 
     <!-- The measurement models' parameters
          The sum of z_hit, z_max, and z_rand must be 1
